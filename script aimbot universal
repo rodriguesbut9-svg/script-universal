@@ -1,0 +1,534 @@
+-- Serviços Principais
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Configurações Globais (Editáveis pela UI)
+local AimEnabled = true
+local ESPEnabled = true
+local InstantAim = true 
+local AimPartMode = "Head" 
+local FOVRadius = 98.79
+local Smoothness = 0.18
+local TargetLock = false
+local WallCheck = false
+local SwitchTargets = true
+local CameraFOVValue = 70 
+
+-- Sistema de Keybind Customizável (Padrão: Botão Direito do Mouse / MouseButton2)
+local AimKey = Enum.UserInputType.MouseButton2
+local IsKeyboardKey = false 
+
+-- Variáveis de Controle
+local CurrentTarget = nil
+local UI_Visible = false 
+local ESP_Cache = {}
+local AimActiveToggle = false 
+
+---
+-- INTERFACE GRÁFICA ULTRA ESTÁVEL (CORRIGIDA)
+---
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "UniversalAimUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Enabled = true 
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- 1. ÍCONE FLUTUANTE (Garantido: Carrega primeiro que tudo)
+local MenuIcon = Instance.new("ImageButton")
+MenuIcon.Name = "BolinhaMenu"
+MenuIcon.Size = UDim2.new(0, 60, 0, 60)
+MenuIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+MenuIcon.Position = UDim2.new(0.5, 0, 0.5, 0) 
+MenuIcon.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MenuIcon.BorderSizePixel = 0
+MenuIcon.Image = "rbxassetid://11419714309" -- Imagem padrão segura
+MenuIcon.Visible = true 
+MenuIcon.Active = true
+MenuIcon.Draggable = true 
+MenuIcon.Parent = ScreenGui 
+
+local IconCorner = Instance.new("UICorner")
+IconCorner.CornerRadius = UDim.new(1, 0)
+IconCorner.Parent = MenuIcon
+
+local IconStroke = Instance.new("UIStroke")
+IconStroke.Color = Color3.fromRGB(0, 162, 255)
+IconStroke.Thickness = 2
+IconStroke.Parent = MenuIcon
+
+-- PROTEÇÃO MÁXIMA: Carregamento do avatar totalmente isolado para não travar a bolinha
+task.spawn(function()
+	local success, content = pcall(function()
+		local userId = LocalPlayer.UserId
+		return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+	end)
+	if success and content then
+		MenuIcon.Image = content
+	end
+end)
+
+-- 2. PAINEL PRINCIPAL
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 255, 0, 650)
+MainFrame.Position = UDim2.new(0.05, 0, 0.25, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = false 
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local FOVCircle = Drawing.new("Circle") 
+
+local function toggleMenu(visible)
+	UI_Visible = visible
+	MainFrame.Visible = visible
+	FOVCircle.Visible = visible
+	
+	if not visible or not ESPEnabled then
+		for _, v in pairs(ESP_Cache) do v.Box.Visible = false; v.Tracer.Visible = false end
+	end
+end
+
+-- Alternador de clique (Abre e fecha) seguro para Celular e PC
+MenuIcon.MouseButton1Click:Connect(function()
+	toggleMenu(not UI_Visible)
+end)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Text = "  UNIVERSAL AIMBOT v8.0"
+Title.TextColor3 = Color3.fromRGB(0, 162, 255)
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.SourceSansBold
+Title.TextSize = 18
+Title.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Padding = UDim.new(0, 6)
+UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Parent = MainFrame
+
+local MasterAimbotButton = nil
+
+local function createToggleButton(name, layoutOrder, default, callback)
+	local Button = Instance.new("TextButton")
+	Button.Size = UDim2.new(0, 230, 0, 32)
+	Button.LayoutOrder = layoutOrder
+	Button.Font = Enum.Font.SourceSans
+	Button.TextSize = 15
+	Button.BorderSizePixel = 0
+	
+	local state = default
+	local function updateVisual()
+		if state then
+			Button.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
+			Button.Text = name .. ": LIGADO"
+		else
+			Button.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+			Button.Text = name .. ": DESLIGADO"
+		end
+		Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+	end
+	
+	updateVisual()
+	Button.MouseButton1Click:Connect(function()
+		state = not state
+		updateVisual()
+		callback(state)
+	end)
+	Button.Parent = MainFrame
+	
+	if name == "Aimbot Master" then
+		MasterAimbotButton = {
+			SetState = function(newState)
+				state = newState
+				updateVisual()
+			end
+		}
+	end
+	
+	return Button
+end
+
+local function createSlider(name, layoutOrder, min, max, default, callback)
+	local SliderContainer = Instance.new("Frame")
+	SliderContainer.Size = UDim2.new(0, 230, 0, 45)
+	SliderContainer.BackgroundTransparency = 1
+	SliderContainer.LayoutOrder = layoutOrder
+	SliderContainer.Parent = MainFrame
+	
+	local Label = Instance.new("TextLabel")
+	Label.Size = UDim2.new(1, 0, 0, 20)
+	Label.BackgroundTransparency = 1
+	Label.TextColor3 = Color3.fromRGB(200, 200, 200)
+	Label.Font = Enum.Font.SourceSans
+	Label.TextSize = 14
+	Label.TextXAlignment = Enum.TextXAlignment.Left
+	Label.Text = name .. ": " .. tostring(default)
+	Label.Parent = SliderContainer
+	
+	local SliderBg = Instance.new("Frame")
+	SliderBg.Size = UDim2.new(1, 0, 0, 6)
+	SliderBg.Position = UDim2.new(0, 0, 0, 25)
+	SliderBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+	SliderBg.BorderSizePixel = 0
+	SliderBg.Parent = SliderContainer
+	
+	local SliderFill = Instance.new("Frame")
+	local initPercent = (default - min) / (max - min)
+	SliderFill.Size = UDim2.new(initPercent, 0, 1, 0)
+	SliderFill.BackgroundColor3 = Color3.fromRGB(0, 162, 255) 
+	SliderFill.BorderSizePixel = 0
+	SliderFill.Parent = SliderBg
+	
+	local dragging = false
+	
+	local function update(input)
+		local setPercent = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
+		SliderFill.Size = UDim2.new(setPercent, 0, 1, 0)
+		local value = min + (max - min) * setPercent
+		value = math.round(value * 100) / 100
+		Label.Text = name .. ": " .. tostring(value)
+		callback(value)
+	end
+	
+	SliderBg.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			MainFrame.Draggable = false 
+			update(input)
+		end
+	end)
+	
+	UIS.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			update(input)
+		end
+	end)
+	
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+			MainFrame.Draggable = true 
+		end
+	end)
+end
+
+createToggleButton("Aimbot Master", 1, AimEnabled, function(v) AimEnabled = v; AimActiveToggle = v; if not v then CurrentTarget = nil end end)
+createToggleButton("Visual ESP Lines/Boxes", 2, ESPEnabled, function(v) ESPEnabled = v; if not v then for _, e in pairs(ESP_Cache) do e.Box.Visible = false; e.Tracer.Visible = false end end end)
+
+local AccuracyButton = Instance.new("TextButton")
+AccuracyButton.Size = UDim2.new(0, 230, 0, 32)
+AccuracyButton.LayoutOrder = 3
+AccuracyButton.Font = Enum.Font.SourceSans
+AccuracyButton.TextSize = 15
+AccuracyButton.BorderSizePixel = 0
+AccuracyButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60) 
+AccuracyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+AccuracyButton.Text = "MIRA: INSTANTÂNEA (Snap Lock)"
+AccuracyButton.MouseButton1Click:Connect(function()
+	InstantAim = not InstantAim
+	if InstantAim then
+		AccuracyButton.Text = "MIRA: INSTANTÂNEA (Snap Lock)"
+		AccuracyButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+	else
+		AccuracyButton.Text = "MIRA: CONTROLADA POR SLIDER"
+		AccuracyButton.BackgroundColor3 = Color3.fromRGB(142, 68, 173)
+	end
+end)
+AccuracyButton.Parent = MainFrame
+
+createSlider("FOV", 4, 10, 500, FOVRadius, function(v) FOVRadius = v end)
+createSlider("Smoothness", 5, 0.01, 1.0, Smoothness, function(v) Smoothness = v end)
+createSlider("Camera FOV", 6, 20, 130, CameraFOVValue, function(v) CameraFOVValue = v end)
+
+local KeybindButton = Instance.new("TextButton")
+KeybindButton.Size = UDim2.new(0, 230, 0, 32)
+KeybindButton.LayoutOrder = 7
+KeybindButton.Font = Enum.Font.SourceSansBold
+KeybindButton.TextSize = 14
+KeybindButton.BorderSizePixel = 0
+KeybindButton.BackgroundColor3 = Color3.fromRGB(41, 128, 185)
+KeybindButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+KeybindButton.Text = "MODO CLIQUE - TECLA: MouseButton2"
+KeybindButton.Parent = MainFrame
+
+local isBinding = false
+KeybindButton.MouseButton1Click:Connect(function()
+	isBinding = true
+	KeybindButton.Text = "PRESSIONE QUALQUER TECLA..."
+	KeybindButton.BackgroundColor3 = Color3.fromRGB(241, 196, 15)
+	KeybindButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+end)
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+	if isBinding then
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			AimKey = input.KeyCode
+			IsKeyboardKey = true
+			KeybindButton.Text = "MODO CLIQUE - TECLA: " .. tostring(input.KeyCode.Name)
+			isBinding = false
+		elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 or input.UserInputType == Enum.UserInputType.MouseButton3 then
+			AimKey = input.UserInputType
+			IsKeyboardKey = false
+			KeybindButton.Text = "MODO CLIQUE - TECLA: " .. tostring(input.UserInputType.Name)
+			isBinding = false
+		end
+		KeybindButton.BackgroundColor3 = Color3.fromRGB(41, 128, 185)
+		KeybindButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+		return
+	end
+	
+	if not gameProcessed then
+		if (IsKeyboardKey and input.KeyCode == AimKey) or (not IsKeyboardKey and input.UserInputType == AimKey) then
+			AimEnabled = not AimEnabled
+			AimActiveToggle = AimEnabled
+			if not AimEnabled then
+				CurrentTarget = nil
+			end
+			if MasterAimbotButton then
+				MasterAimbotButton.SetState(AimEnabled)
+			end
+		end
+	end
+end)
+
+local TargetPartButton = Instance.new("TextButton")
+TargetPartButton.Size = UDim2.new(0, 230, 0, 32)
+TargetPartButton.LayoutOrder = 8
+TargetPartButton.Font = Enum.Font.SourceSans
+TargetPartButton.TextSize = 15
+TargetPartButton.BorderSizePixel = 0
+TargetPartButton.BackgroundColor3 = Color3.fromRGB(230, 126, 34)
+TargetPartButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+TargetPartButton.Text = "ALVO: CABEÇA"
+TargetPartButton.MouseButton1Click:Connect(function()
+	if AimPartMode == "Head" then
+		AimPartMode = "Torso"
+		TargetPartButton.Text = "ALVO: PEITO"
+	else
+		AimPartMode = "Head"
+		TargetPartButton.Text = "ALVO: CABEÇA"
+	end
+end)
+TargetPartButton.Parent = MainFrame
+
+createToggleButton("Travar no Alvo (Lock)", 9, TargetLock, function(v) TargetLock = v; if not v then CurrentTarget = nil end end)
+createToggleButton("Wall Check (Paredes)", 10, WallCheck, function(v) WallCheck = v end)
+createToggleButton("Troca Automática de Alvo", 11, SwitchTargets, function(v) SwitchTargets = v end)
+
+local InfoLabel = Instance.new("TextLabel")
+InfoLabel.Size = UDim2.new(0, 230, 0, 25)
+InfoLabel.LayoutOrder = 12
+InfoLabel.Text = "Bolinha fecha/abre o menu no celular"
+InfoLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+InfoLabel.BackgroundTransparency = 1
+InfoLabel.Font = Enum.Font.SourceSansItalic
+InfoLabel.TextSize = 13
+InfoLabel.Parent = MainFrame
+
+-- Criador Caue Destacado Fixo
+local CreatorLabel = Instance.new("TextLabel")
+CreatorLabel.Size = UDim2.new(0, 230, 0, 30)
+CreatorLabel.LayoutOrder = 13
+CreatorLabel.Text = "Criador: Caue"
+CreatorLabel.TextColor3 = Color3.fromRGB(255, 255, 255) 
+CreatorLabel.BackgroundTransparency = 1
+CreatorLabel.Font = Enum.Font.GothamBold
+CreatorLabel.TextSize = 22
+CreatorLabel.Parent = MainFrame
+
+FOVCircle.Color = Color3.fromRGB(0, 162, 255)
+FOVCircle.Thickness = 1
+FOVCircle.NumSides = 64
+FOVCircle.Radius = FOVRadius
+FOVCircle.Filled = false
+FOVCircle.Visible = false 
+
+---
+-- SISTEMA DE ESP UNIVERSAL
+---
+local function createESP(player)
+	if ESP_Cache[player] then return end
+	local Box = Drawing.new("Square")
+	Box.Color = Color3.fromRGB(255, 0, 0)
+	Box.Thickness = 1
+	Box.Filled = false
+	Box.Visible = false
+	
+	local Tracer = Drawing.new("Line")
+	Tracer.Color = Color3.fromRGB(255, 255, 255)
+	Tracer.Thickness = 1
+	Tracer.Visible = false
+	
+	ESP_Cache[player] = {Box = Box, Tracer = Tracer}
+end
+
+local function removeESP(player)
+	if ESP_Cache[player] then
+		ESP_Cache[player].Box:Remove()
+		ESP_Cache[player].Tracer:Remove()
+		ESP_Cache[player] = nil
+	end
+end
+
+Players.PlayerAdded:Connect(createESP)
+Players.PlayerRemoving:Connect(removeESP)
+for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then createESP(p) end end
+
+local function updateESP()
+	for player, v in pairs(ESP_Cache) do
+		if ESPEnabled and UI_Visible and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+			local hrp = player.Character.HumanoidRootPart
+			local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+			
+			if onScreen then
+				local sizeX = 1000 / screenPos.Z
+				local sizeY = 1500 / screenPos.Z
+				v.Box.Size = Vector2.new(sizeX, sizeY)
+				v.Box.Position = Vector2.new(screenPos.X - sizeX / 2, screenPos.Y - sizeY / 2)
+				v.Box.Visible = true
+				
+				v.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+				v.Tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+				v.Tracer.Visible = true
+				
+				if CurrentTarget == player then
+					v.Box.Color = Color3.fromRGB(0, 162, 255)
+					v.Tracer.Color = Color3.fromRGB(0, 162, 255)
+				else
+					v.Box.Color = Color3.fromRGB(255, 50, 50)
+					v.Tracer.Color = Color3.fromRGB(200, 200, 200)
+				end
+			else
+				v.Box.Visible = false
+				v.Tracer.Visible = false
+			end
+		else
+			v.Box.Visible = false
+			v.Tracer.Visible = false
+		end
+	end
+end
+
+---
+-- CORE ENGINE
+---
+UIS.InputBegan:Connect(function(input, gameProcessed)
+	if not gameProcessed and (input.KeyCode == Enum.KeyCode.Insert or input.KeyCode == Enum.KeyCode.RightControl) then
+		toggleMenu(not UI_Visible) 
+	end
+end)
+
+local function getTargetPart(character)
+	if AimPartMode == "Head" then
+		return character:FindFirstChild("Head")
+	else
+		return character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("HumanoidRootPart")
+	end
+end
+
+local function isVisible(targetPart)
+	if not WallCheck then return true end
+	local origin = Camera.CFrame.Position
+	local direction = targetPart.Position - origin
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent}
+	
+	local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+	return raycastResult == nil
+end
+
+local function getClosestPlayer()
+	local closestPlayer = nil
+	local shortestDistance = FOVRadius
+	local mousePos = UIS:GetMouseLocation()
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local targetPart = getTargetPart(player.Character)
+			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+			
+			if targetPart and humanoid and humanoid.Health > 0 then
+				local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+				
+				if onScreen then
+					local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+					if distance < shortestDistance and isVisible(targetPart) then
+						shortestDistance = distance
+						closestPlayer = player
+					end
+				end
+			end
+		end
+	end
+	return closestPlayer
+end
+
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	Camera = workspace.CurrentCamera
+end)
+
+RunService:BindToRenderStep("UniversalUltraLock", Enum.RenderPriority.Last.Value, function()
+	FOVCircle.Position = UIS:GetMouseLocation()
+	FOVCircle.Radius = FOVRadius
+	
+	if Camera then
+		Camera.FieldOfView = CameraFOVValue
+	end
+	
+	updateESP()
+	
+	if not AimEnabled then return end
+	
+	if AimActiveToggle then
+		if TargetLock and CurrentTarget then
+			local tPart = CurrentTarget.Character and getTargetPart(CurrentTarget.Character)
+			local targetHumanoid = CurrentTarget.Character and CurrentTarget.Character:FindFirstChildOfClass("Humanoid")
+			
+			if tPart and targetHumanoid and targetHumanoid.Health > 0 and isVisible(tPart) then
+				-- Alvo focado
+			else
+				CurrentTarget = nil
+			end
+		end
+		
+		if not CurrentTarget or SwitchTargets then
+			CurrentTarget = getClosestPlayer()
+		end
+		
+		if CurrentTarget and CurrentTarget.Character then
+			local targetPart = getTargetPart(CurrentTarget.Character)
+			if targetPart then
+				local targetPos = targetPart.Position
+				
+				if AimPartMode == "Head" and targetPart.Name == "Head" then
+					targetPos = targetPart.Position + Vector3.new(0, 0.15, 0)
+				end
+				
+				local finalLook = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+				
+				if InstantAim then
+					Camera.CFrame = Camera.CFrame:Lerp(finalLook, 1 - (Smoothness * 0.9))
+				else
+					Camera.CFrame = Camera.CFrame:Lerp(finalLook, 0.02)
+				end
+			end
+		end
+	else
+		if not TargetLock then
+			CurrentTarget = nil
+		end
+	end
+end)
