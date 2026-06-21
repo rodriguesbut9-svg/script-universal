@@ -456,29 +456,31 @@ local function isVisible(targetPart)
 end
 
 local function getClosestPlayer()
-	local closestPlayer = nil
-	local shortestDistance = FOVRadius
-	local mousePos = UIS:GetMouseLocation()
+    local closestPlayer = nil
+    local shortestDistance = FOVRadius
+    
+    local isMobile = UIS.TouchEnabled
+    local mousePos = isMobile and Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2) or UIS:GetMouseLocation()
 
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character and isEnemy(player) then
-			local targetPart = getTargetPart(player.Character)
-			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-			
-			if targetPart and humanoid and humanoid.Health > 0 then
-				local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-				
-				if onScreen then
-					local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-					if distance < shortestDistance and isVisible(targetPart) then
-						shortestDistance = distance
-						closestPlayer = player
-					end
-				end
-			end
-		end
-	end
-	return closestPlayer
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and isEnemy(player) then
+            local targetPart = getTargetPart(player.Character)
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            
+            if targetPart and humanoid and humanoid.Health > 0 then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                
+                if onScreen then
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if distance < shortestDistance and isVisible(targetPart) then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
 end
 
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
