@@ -17,6 +17,11 @@ local WallCheck = false
 local SwitchTargets = true
 local CameraFOVValue = 70 
 
+local function isEnemy(player)
+    if not player.Team or not LocalPlayer.Team then return true end
+    return player.Team ~= LocalPlayer.Team
+end
+
 -- Sistema de Keybind Customizável (Padrão: Botão Direito do Mouse / MouseButton2)
 local AimKey = Enum.UserInputType.MouseButton2
 local IsKeyboardKey = false 
@@ -388,7 +393,7 @@ for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then createESP(p
 
 local function updateESP()
 	for player, v in pairs(ESP_Cache) do
-		if ESPEnabled and UI_Visible and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+		if ESPEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
 			local hrp = player.Character.HumanoidRootPart
 			local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
 			
@@ -456,7 +461,7 @@ local function getClosestPlayer()
 	local mousePos = UIS:GetMouseLocation()
 
 	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character then
+		if player ~= LocalPlayer and player.Character and isEnemy(player) then
 			local targetPart = getTargetPart(player.Character)
 			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
 			
