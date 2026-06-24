@@ -12,6 +12,7 @@ local InstantAim = true
 local AimPartMode = "Head" 
 local FOVRadius = 98.79
 local Smoothness = 0.18
+local MaxDistance = 300 -- Essa é a distância padrão inicial
 local TargetLock = false
 local WallCheck = false
 local SwitchTargets = true
@@ -256,7 +257,7 @@ AccuracyButton.Parent = MainFrame
 createSlider("FOV", 4, 10, 500, FOVRadius, function(v) FOVRadius = v end)
 createSlider("Smoothness", 5, 0.01, 1.0, Smoothness, function(v) Smoothness = v end)
 createSlider("Camera FOV", 6, 20, 130, CameraFOVValue, function(v) CameraFOVValue = v end)
-
+createSlider("Max Distância", 7, 10, 1000, MaxDistance, function(v) MaxDistance = v end)
 local KeybindButton = Instance.new("TextButton")
 KeybindButton.Size = UDim2.new(0, 230, 0, 32)
 KeybindButton.LayoutOrder = 7
